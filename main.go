@@ -24,6 +24,8 @@ func main() {
 	mux.HandleFunc("GET /admin/metrics", apicfg.returnFileserverHits)
 	mux.HandleFunc("POST /admin/reset", apicfg.resetFileserverHits)
 
+	mux.HandleFunc("POST /api/validate_chirp", validateFunc)
+
 	//create new httpServer
 	srv := &http.Server{
 		Addr:    ":" + port,
