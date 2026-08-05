@@ -21,8 +21,8 @@ func main() {
 	mux.Handle("/app/", apicfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir(filepathRoot)))))
 
 	mux.HandleFunc("GET /api/healthz", healthCheckFunc)
-	mux.HandleFunc("GET /api/metrics", apicfg.returnFileserverHits)
-	mux.HandleFunc("POST /api/reset", apicfg.resetFileserverHits)
+	mux.HandleFunc("GET /admin/metrics", apicfg.returnFileserverHits)
+	mux.HandleFunc("POST /admin/reset", apicfg.resetFileserverHits)
 
 	//create new httpServer
 	srv := &http.Server{

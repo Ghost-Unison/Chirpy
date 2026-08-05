@@ -15,15 +15,24 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 	})
 }
 
+// metricsPageTemplate is the HTML page served on /admin/metrics.
+const metricsPageTemplate = `<html>
+  <body>
+    <h1>Welcome, Chirpy Admin</h1>
+    <p>Chirpy has been visited %d times!</p>
+  </body>
+</html>`
+
 /*
-writes the number of requests that have been counted as plain text in this format to the HTTP response:
-Hits: x
+returnFileserverHits serves an HTML page reporting the number of
+fileserver requests recorded by middlewareMetricsInc.
 */
 func (cfg *apiConfig) returnFileserverHits(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	//w.Write([]byte(fmt.Sprintf("Hits: %d", cfg.fileserverHits.Load())))
-	w.Write(fmt.Appendf(nil, "Hits: %d", cfg.fileserverHits.Load()))
+	if _, err := fmt.Fprintf(w, metricsPageTemplate, cfg.fileserverHits.Load()); err != nil {
+		log.Printf("failed to write metrics response: %v", err)
+	}
 }
 
 func (cfg *apiConfig) resetFileserverHits(w http.ResponseWriter, r *http.Request) {
