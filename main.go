@@ -16,12 +16,17 @@ import (
 type apiConfig struct {
 	fileserverHits atomic.Int32
 	dbQueries      *database.Queries
+	platform       string
 }
 
 func main() {
+	const filepathRoot = "."
+	const port = "8080"
+
 	//获取数据库连接字符串并连接数据库
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
+	platform := os.Getenv("PLATFORM")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatalf("failed to connect to db: %v\n", err)
@@ -31,10 +36,8 @@ func main() {
 	apicfg := apiConfig{
 		fileserverHits: atomic.Int32{},
 		dbQueries:      dbQueries,
+		platform:       platform,
 	}
-
-	const filepathRoot = "."
-	const port = "8080"
 
 	// handler to route request
 	mux := http.NewServeMux()
@@ -42,9 +45,13 @@ func main() {
 
 	mux.HandleFunc("GET /api/healthz", healthCheckFunc)
 	mux.HandleFunc("GET /admin/metrics", apicfg.returnFileserverHits)
-	mux.HandleFunc("POST /admin/reset", apicfg.resetFileserverHits)
+	mux.HandleFunc("POST /admin/resetHits", apicfg.resetFileserverHits)
+	mux.HandleFunc("POST /admin/reset", apicfg.resetUsersHandler)
 
-	mux.HandleFunc("POST /api/validate_chirp", validateFunc)
+	mux.HandleFunc("POST /api/users", apicfg.createUserHandler)
+	mux.HandleFunc("POST /api/chirps", apicfg.createChirpHandler)
+	mux.HandleFunc("GET /api/chirps", apicfg.getChirpsHandler)
+	mux.HandleFunc("GET /api/chirps/{chirpID}", apicfg.getChirpHandler)
 
 	//create new httpServer
 	srv := &http.Server{

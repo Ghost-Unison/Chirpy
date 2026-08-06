@@ -1,3 +1,4 @@
+// 访问量统计数字相关
 package main
 
 import (
@@ -40,5 +41,4 @@ func (cfg *apiConfig) resetFileserverHits(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 	cfg.fileserverHits.Store(0)
 	w.Write([]byte("Hits reset to 0"))
-
 }
