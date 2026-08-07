@@ -1,4 +1,5 @@
-package main
+// Package webhooks 负责处理外部服务（如 Polka）的 webhook 回调。
+package webhooks
 
 import (
 	"database/sql"
@@ -7,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/Ghost-Unison/Chirpy/internal/auth"
+	"github.com/Ghost-Unison/Chirpy/internal/database"
 	"github.com/google/uuid"
 )
 
@@ -19,15 +21,26 @@ type polkaWebhooksRequestData struct {
 	UserID uuid.UUID `json:"user_id"`
 }
 
-func (cfg *apiConfig) polkaWebhooksHandler(w http.ResponseWriter, r *http.Request) {
+// Handler 持有 webhook 处理器所需的依赖。
+type Handler struct {
+	db       *database.Queries
+	polkaKey string
+}
 
+// NewHandler 构造一个持有 db 与 Polka API key 的 webhooks.Handler。
+func NewHandler(db *database.Queries, polkaKey string) *Handler {
+	return &Handler{db: db, polkaKey: polkaKey}
+}
+
+// PolkaWebhooks 处理 POST /api/polka/webhooks: 校验 API key 后处理事件。
+func (h *Handler) PolkaWebhooks(w http.ResponseWriter, r *http.Request) {
 	// validate request
 	apiKey, err := auth.GetAPIKey(r.Header)
 	if err != nil {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
-	if apiKey != cfg.polkaKey {
+	if apiKey != h.polkaKey {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
@@ -59,7 +72,7 @@ func (cfg *apiConfig) polkaWebhooksHandler(w http.ResponseWriter, r *http.Reques
 		}
 	*/
 	//upgrade user to chirpy red
-	_, err = cfg.dbQueries.UpdateUserToChirpyRedByID(r.Context(), req.Data.UserID)
+	_, err = h.db.UpdateUserToChirpyRedByID(r.Context(), req.Data.UserID)
 	if err != nil {
 		//当没有匹配行时它本身就会返回 sql.ErrNoRows 这时返回404
 		if errors.Is(err, sql.ErrNoRows) {
