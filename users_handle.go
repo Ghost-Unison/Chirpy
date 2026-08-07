@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// 创建用户、用户登录通用请求体
+// 创建用户、用户登录、更新用户通用请求体
 type userRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -152,4 +152,54 @@ func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, user)
 
+}
+
+// 更新用户email或者password
+func (cfg *apiConfig) updateUserHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+
+	//jwt auth
+	jwt, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Invalid token"})
+		return
+	}
+
+	userId, err := auth.ValidateJWT(jwt, cfg.secretKey)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Invalid token"})
+		return
+	}
+
+	//decode request
+	var req userRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request payload"})
+		return
+	}
+
+	if req.Email == "" || req.Password == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Email or password is required"})
+		return
+	}
+
+	//Argon2id 每次哈希使用随机盐，所以 HashPassword(相同密码) 每次产生的哈希都不同
+	hashedPassword, err := auth.HashPassword(req.Password)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Hashing password failed"})
+		return
+	}
+
+	// update user
+	newDbUser, err := cfg.dbQueries.UpdateUserByID(r.Context(), database.UpdateUserByIDParams{
+		Email:          req.Email,
+		HashedPassword: hashedPassword,
+		ID:             userId,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Failed to update user"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, databaseUser(newDbUser))
 }
