@@ -3,7 +3,6 @@ package auth
 import (
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -13,7 +12,7 @@ func TestMakeJWTAndValidate(t *testing.T) {
 	tokenSecret := "my-super-secret-key"
 	userID := uuid.New()
 
-	token, err := MakeJWT(userID, tokenSecret, time.Hour)
+	token, err := MakeJWT(userID, tokenSecret)
 	if err != nil {
 		t.Fatalf("MakeJWT returned unexpected error: %v", err)
 	}
@@ -36,7 +35,7 @@ func TestValidateJWT_ExpiredToken(t *testing.T) {
 	userID := uuid.New()
 
 	// expiresIn 设为负数，令 ExpiresAt 落在当前时间之前，token 一经签发即过期
-	token, err := MakeJWT(userID, tokenSecret, -time.Hour)
+	token, err := MakeJWT(userID, tokenSecret)
 	if err != nil {
 		t.Fatalf("MakeJWT returned unexpected error: %v", err)
 	}
@@ -53,7 +52,7 @@ func TestValidateJWT_WrongSecret(t *testing.T) {
 	wrongSecret := "wrong-secret"
 	userID := uuid.New()
 
-	token, err := MakeJWT(userID, correctSecret, time.Hour)
+	token, err := MakeJWT(userID, correctSecret)
 	if err != nil {
 		t.Fatalf("MakeJWT returned unexpected error: %v", err)
 	}

@@ -14,17 +14,17 @@ import (
 type userRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
-	Expires  int64  `json:"expires_in_seconds"`
 }
 
 // User 是 main 包中的用户结构体，用于控制 JSON 序列化的 key 名称
 // （database.User 由 sqlc 生成，没有 JSON tag，直接序列化会输出大写驼峰 key）
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
-	Token     string    `json:"token"`
+	ID           uuid.UUID `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Email        string    `json:"email"`
+	Token        string    `json:"token"`
+	RefreshToken string    `json:"refresh_token"`
 }
 
 // databaseUser 将 database.User 映射为 main 包的 User
@@ -111,10 +111,6 @@ func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Email and password are required"})
 		return
 	}
-	// 过期时间为空或超过一小时，则设置为一小时
-	if req.Expires == 0 || req.Expires > 3600 {
-		req.Expires = 3600
-	}
 
 	//get user by email
 	dbUser, err := cfg.dbQueries.GetUserByEmail(r.Context(), req.Email)
@@ -130,14 +126,30 @@ func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// generate token
-	token, err := auth.MakeJWT(dbUser.ID, cfg.secretKey, time.Duration(req.Expires)*time.Second)
+	// generate access_token
+	token, err := auth.MakeJWT(dbUser.ID, cfg.secretKey)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Failed to create token"})
 		return
 	}
 	user := databaseUser(dbUser)
 	user.Token = token
+
+	// generate refresh_token
+	refreshToken := auth.MakeRefreshToken()
+	user.RefreshToken = refreshToken
+
+	// store refresh_token
+	_, err = cfg.dbQueries.CreateRefreshToken(r.Context(), database.CreateRefreshTokenParams{
+		Token:     refreshToken,
+		ExpiresAt: time.Now().Add(time.Hour * 24 * 60),
+		UserID:    dbUser.ID,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Failed to save refresh token"})
+		return
+	}
+
 	writeJSON(w, http.StatusOK, user)
 
 }
