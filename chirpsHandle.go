@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Ghost-Unison/Chirpy/internal/auth"
 	"github.com/Ghost-Unison/Chirpy/internal/database"
 	"github.com/google/uuid"
 )
@@ -18,9 +19,10 @@ type errorResponse struct {
 }
 
 // chirpRequest 是 POST /api/chirps 的请求体
+// userId以jwt中为准，不再从请求体中获取
 type chirpRequest struct {
-	Body   string    `json:"body"`
-	UserId uuid.UUID `json:"user_id"`
+	Body string `json:"body"`
+	//UserId uuid.UUID `json:"user_id"`
 }
 
 // sqlc Chirp -> database.Chirp
@@ -85,6 +87,21 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
+	jwt, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{
+			Error: "Invalid token",
+		})
+		return
+	}
+	userId, err := auth.ValidateJWT(jwt, cfg.secretKey)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{
+			Error: "Invalid token",
+		})
+		return
+	}
+
 	// decode request
 	var req chirpRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -101,19 +118,21 @@ func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
-	// validate user ID -当 json.NewDecoder().Decode() 解析 JSON 时，会自动尝试把 user_id 字段的字符串解析成 UUID，这里只需要排除空值
-	if req.UserId == uuid.Nil {
-		writeJSON(w, http.StatusBadRequest, errorResponse{
-			Error: "User ID is required",
-		})
-		return
-	}
+	/*
+		validate user ID -当 json.NewDecoder().Decode() 解析 JSON 时，会自动尝试把 user_id 字段的字符串解析成 UUID，这里只需要排除空值
+		if req.UserId == uuid.Nil {
+			writeJSON(w, http.StatusBadRequest, errorResponse{
+				Error: "User ID is required",
+			})
+			return
+		}
+	*/
 
 	//不再返回 cleaned_body，而是存入数据库
 	cleanedBody := cleanBody(req.Body)
 	dbChirp, err := cfg.dbQueries.CreateChirp(r.Context(), database.CreateChirpParams{
 		Body:   cleanedBody,
-		UserID: req.UserId,
+		UserID: userId,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{

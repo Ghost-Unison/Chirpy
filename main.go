@@ -17,6 +17,7 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	dbQueries      *database.Queries
 	platform       string
+	secretKey      string
 }
 
 func main() {
@@ -27,6 +28,7 @@ func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
 	platform := os.Getenv("PLATFORM")
+	secretKey := os.Getenv("SECRET_KEY")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatalf("failed to connect to db: %v\n", err)
@@ -37,6 +39,7 @@ func main() {
 		fileserverHits: atomic.Int32{},
 		dbQueries:      dbQueries,
 		platform:       platform,
+		secretKey:      secretKey,
 	}
 
 	// handler to route request
@@ -52,6 +55,7 @@ func main() {
 	mux.HandleFunc("POST /api/chirps", apicfg.createChirpHandler)
 	mux.HandleFunc("GET /api/chirps", apicfg.getChirpsHandler)
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apicfg.getChirpHandler)
+	mux.HandleFunc("POST /api/login", apicfg.loginHandler)
 
 	//create new httpServer
 	srv := &http.Server{

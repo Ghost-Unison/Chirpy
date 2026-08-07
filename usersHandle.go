@@ -5,9 +5,17 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Ghost-Unison/Chirpy/internal/auth"
 	"github.com/Ghost-Unison/Chirpy/internal/database"
 	"github.com/google/uuid"
 )
+
+// 创建用户、用户登录通用请求体
+type userRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Expires  int64  `json:"expires_in_seconds"`
+}
 
 // User 是 main 包中的用户结构体，用于控制 JSON 序列化的 key 名称
 // （database.User 由 sqlc 生成，没有 JSON tag，直接序列化会输出大写驼峰 key）
@@ -16,6 +24,7 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
+	Token     string    `json:"token"`
 }
 
 // databaseUser 将 database.User 映射为 main 包的 User
@@ -33,28 +42,34 @@ func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
 	//decode request
-	var req struct {
-		Email string `json:"email"`
-	}
+	var req userRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request payload"})
+		return
+	}
+
+	// validate request: email and password must not be empty
+	if req.Email == "" || req.Password == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Email and password are required"})
 		return
 	}
 
 	// create user
-	dbUser, err := cfg.dbQueries.CreateUser(r.Context(), req.Email)
+	hashedPassword, err := auth.HashPassword(req.Password)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Hashing password failed"})
+		return
+	}
+	dbUser, err := cfg.dbQueries.CreateUser(r.Context(), database.CreateUserParams{
+		Email:          req.Email,
+		HashedPassword: hashedPassword,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Creating user failed"})
 		return
 	}
 
-	userJson, err := json.Marshal(databaseUser(dbUser))
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusCreated)
-	w.Write(userJson)
+	writeJSON(w, http.StatusOK, databaseUser(dbUser))
 }
 
 // 重置用户
@@ -78,4 +93,51 @@ func (cfg *apiConfig) resetUsersHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Users reset"))
+}
+
+// 用户登录
+func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+
+	//decode request
+	var req userRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid request payload"})
+		return
+	}
+
+	// validate request: email and password must not be empty
+	if req.Email == "" || req.Password == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Email and password are required"})
+		return
+	}
+	// 过期时间为空或超过一小时，则设置为一小时
+	if req.Expires == 0 || req.Expires > 3600 {
+		req.Expires = 3600
+	}
+
+	//get user by email
+	dbUser, err := cfg.dbQueries.GetUserByEmail(r.Context(), req.Email)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Incorrect email or password"})
+		return
+	}
+
+	// check password
+	match, err := auth.CheckPasswordHash(req.Password, dbUser.HashedPassword)
+	if err != nil || !match {
+		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "Incorrect email or password"})
+		return
+	}
+
+	// generate token
+	token, err := auth.MakeJWT(dbUser.ID, cfg.secretKey, time.Duration(req.Expires)*time.Second)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Failed to create token"})
+		return
+	}
+	user := databaseUser(dbUser)
+	user.Token = token
+	writeJSON(w, http.StatusOK, user)
+
 }
