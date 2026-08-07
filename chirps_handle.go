@@ -4,6 +4,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -84,6 +85,31 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 	w.Write(data)
 }
 
+// sortChirps 将 chirps 按指定字段、指定方向排序。
+// field 支持 "created_at"、"updated_at"、"body" 等；order 为 "desc" 时倒序，其余视为升序。
+// sort.Slice 原地排序，返回同一切片以便链式使用。
+func sortChirps(chirps []database.Chirp, order string, field string) []database.Chirp {
+	asc := order != "desc"
+	less := func(i, j int) bool {
+		// 按升序语义返回 i 是否应排在 j 之前
+		switch field {
+		case "updated_at":
+			return chirps[i].UpdatedAt.Before(chirps[j].UpdatedAt)
+		case "body":
+			return chirps[i].Body < chirps[j].Body
+		default: // "created_at" 及其它情况默认按创建时间
+			return chirps[i].CreatedAt.Before(chirps[j].CreatedAt)
+		}
+	}
+	sort.Slice(chirps, func(i, j int) bool {
+		if asc {
+			return less(i, j)
+		}
+		return less(j, i) // 倒序：交换比较参数；等值时两端均为 false，保持稳定
+	})
+	return chirps
+}
+
 func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
@@ -149,13 +175,32 @@ func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, r *http.Request)
 func (cfg *apiConfig) getChirpsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
-	dbChirps, err := cfg.dbQueries.QueryChirps(r.Context())
+	// author_id 是可选查询参数：未提供时返回全部 chirps，提供时只返回该作者的 chirps。 - 过滤在数据库层面完成，而非在内存中。
+	rawAuthorID := r.URL.Query().Get("author_id")
+	// sort 是可选查询参数：asc（默认）/desc，按 created_at 排序
+	sortParam := r.URL.Query().Get("sort")
+
+	var dbChirps []database.Chirp
+	var err error
+	if rawAuthorID == "" {
+		// 未提供 author_id：返回所有 chirps，按 created_at 升序
+		dbChirps, err = cfg.dbQueries.QueryChirps(r.Context())
+	} else {
+		// 提供了 author_id：解析后按作者过滤（数据库层面）
+		authorID, parseErr := uuid.Parse(rawAuthorID)
+		if parseErr != nil {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "Invalid author ID"})
+			return
+		}
+		dbChirps, err = cfg.dbQueries.QueryChirpsByAuthor(r.Context(), authorID)
+	}
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errorResponse{
-			Error: "Could not query chirps",
-		})
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "Could not query chirps"})
 		return
 	}
+
+	// 在内存中按 created_at 排序：默认 asc，sort=desc 时倒序
+	sortChirps(dbChirps, sortParam, "created_at")
 
 	writeJSON(w, http.StatusOK, databaseChirps(dbChirps))
 }
