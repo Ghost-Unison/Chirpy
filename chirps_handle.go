@@ -87,6 +87,7 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
+	// jwt auth
 	jwt, err := auth.GetBearerToken(r.Header)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, errorResponse{
